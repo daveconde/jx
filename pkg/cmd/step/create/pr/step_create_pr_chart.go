@@ -1,12 +1,6 @@
 package pr
 
 import (
-	"fmt"
-	"io/ioutil"
-	"os"
-	"path/filepath"
-	"regexp"
-
 	"github.com/jenkins-x/jx/pkg/gits"
 	"github.com/jenkins-x/jx/pkg/helm"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -88,53 +82,7 @@ func (o *StepCreatePullRequestChartsOptions) Run() error {
 	}
 	err := o.CreatePullRequest("chart",
 		func(dir string, gitInfo *gits.GitRepository) ([]string, error) {
-			oldVersions := make([]string, 0)
-			// walk the filepath, looking for values.yaml and requirements.yaml
-			err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-				base := filepath.Base(path)
-				if base == helm.RequirementsFileName {
-					requirements, err := helm.LoadRequirementsFile(path)
-					if err != nil {
-						return errors.Wrapf(err, "loading %s", path)
-					}
-					for _, name := range o.Names {
-						oldVersions = append(oldVersions, helm.UpdateRequirementsToNewVersion(requirements, name, o.Version)...)
-					}
-					err = helm.SaveFile(path, *requirements)
-					if err != nil {
-						return errors.Wrapf(err, "saving %s", path)
-					}
-				} else if base == helm.ValuesFileName {
-					values, err := ioutil.ReadFile(path)
-					if err != nil {
-						return errors.Wrapf(err, "reading %s", path)
-					}
-					newValues := string(values)
-					for _, name := range o.Names {
-						re, err := regexp.Compile(fmt.Sprintf(`(?m)^\s*Image: %s:(.*)$`, name))
-						if err != nil {
-							return errors.WithStack(err)
-						}
-						newValues = util.ReplaceAllStringSubmatchFunc(re, newValues, func(groups []util.Group) []string {
-							answer := make([]string, 0)
-							for i := range groups {
-								oldVersions = append(oldVersions, groups[i].Value)
-								answer = append(answer, o.Version)
-							}
-							return answer
-						})
-					}
-					err = ioutil.WriteFile(path, []byte(newValues), info.Mode())
-					if err != nil {
-						return errors.Wrapf(err, "writing %s", path)
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return nil, errors.WithStack(err)
-			}
-			return oldVersions, nil
+			return helm.UpdateVersions(o.Version, dir, o.Names)
 		})
 	if err != nil {
 		return errors.WithStack(err)

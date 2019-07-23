@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -904,6 +905,57 @@ func UpdateRequirementsToNewVersion(requirements *Requirements, name string, new
 		}
 	}
 	return answer
+}
+
+// UpdateVersions updates versions in requirements.yaml and values.yaml
+func UpdateVersions(version string, dir string, names []string) ([]string, error) {
+	oldVersions := make([]string, 0)
+	// walk the filepath, looking for values.yaml and requirements.yaml
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		base := filepath.Base(path)
+		if base == RequirementsFileName {
+			requirements, err := LoadRequirementsFile(path)
+			if err != nil {
+				return errors.Wrapf(err, "loading %s", path)
+			}
+			for _, name := range names {
+				oldVersions = append(oldVersions, UpdateRequirementsToNewVersion(requirements, name, version)...)
+			}
+			err = SaveFile(path, *requirements)
+			if err != nil {
+				return errors.Wrapf(err, "saving %s", path)
+			}
+		} else if base == ValuesFileName {
+			values, err := ioutil.ReadFile(path)
+			if err != nil {
+				return errors.Wrapf(err, "reading %s", path)
+			}
+			newValues := string(values)
+			for _, name := range names {
+				re, err := regexp.Compile(fmt.Sprintf(`(?m)^\s*Image: %s:(.*)$`, name))
+				if err != nil {
+					return errors.WithStack(err)
+				}
+				newValues = util.ReplaceAllStringSubmatchFunc(re, newValues, func(groups []util.Group) []string {
+					answer := make([]string, 0)
+					for i := range groups {
+						oldVersions = append(oldVersions, groups[i].Value)
+						answer = append(answer, version)
+					}
+					return answer
+				})
+			}
+			err = ioutil.WriteFile(path, []byte(newValues), info.Mode())
+			if err != nil {
+				return errors.Wrapf(err, "writing %s", path)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return oldVersions, nil
 }
 
 // UpdateImagesInValuesToNewVersion update a (values) file, replacing that start with "Image: <name>:" to "Image: <name>:<newVersion>",
