@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	jenkinsio "github.com/jenkins-x/jx/pkg/apis/jenkins.io"
@@ -580,4 +581,67 @@ func LocateAppResource(helmer helm.Helmer, chartDir string, appName string) (*je
 	}
 
 	return app, filename, nil
+}
+
+func WriteVersionUpdatesUsingRegex(regexp *regexp.Regexp, dir string, files []string, version string) ([]string, error) {
+	namedCaptureIndex := make([]bool, 0)
+	namedCapture := false
+	for i, n := range regexp.SubexpNames() {
+		if i == 0 {
+			continue
+		} else if n == "version" {
+			namedCaptureIndex = append(namedCaptureIndex, true)
+			namedCapture = true
+		} else {
+			namedCaptureIndex = append(namedCaptureIndex, false)
+		}
+	}
+	oldVersions := make([]string, 0)
+	for _, glob := range files {
+		matches, err := filepath.Glob(filepath.Join(dir, glob))
+		if err != nil {
+			return nil, errors.Wrapf(err, "applying glob %s", glob)
+		}
+
+		// iterate over the glob matches
+		for _, path := range matches {
+
+			data, err := ioutil.ReadFile(path)
+			if err != nil {
+				return nil, errors.Wrapf(err, "reading %s", path)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				return nil, errors.WithStack(err)
+			}
+			s := string(data)
+			answer := util.ReplaceAllStringSubmatchFunc(regexp, s, func(groups []util.Group) []string {
+				answer := make([]string, 0)
+				for i, group := range groups {
+					if namedCapture {
+						// If we are using named capture, then replace only the named captures that have the right name
+						if namedCaptureIndex[i] {
+							oldVersions = append(oldVersions, group.Value)
+							answer = append(answer, version)
+						} else {
+							answer = append(answer, group.Value)
+						}
+					} else {
+						oldVersions = append(oldVersions, group.Value)
+						answer = append(answer, version)
+					}
+
+				}
+				return answer
+			})
+			err = ioutil.WriteFile(path, []byte(answer), info.Mode())
+			if err != nil {
+				return nil, errors.Wrapf(err, "writing %s", path)
+			}
+		}
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+	}
+	return oldVersions, nil
 }

@@ -2,9 +2,7 @@ package pr
 
 import (
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path/filepath"
+	"github.com/jenkins-x/jx/pkg/environments"
 	"regexp"
 	"strings"
 
@@ -113,73 +111,13 @@ func (o *StepCreatePullRequestRegexOptions) Run() error {
 	if err := o.ValidateRegexOptions(); err != nil {
 		return errors.WithStack(err)
 	}
-	regexp, err := regexp.Compile(o.Regexp)
+	var regexp, err = regexp.Compile(o.Regexp)
 	if err != nil {
 		return errors.Wrapf(err, "%s does not compile", o.Regexp)
 	}
-	namedCaptureIndex := make([]bool, 0)
-	namedCapture := false
-	for i, n := range regexp.SubexpNames() {
-		if i == 0 {
-			continue
-		} else if n == "version" {
-			namedCaptureIndex = append(namedCaptureIndex, true)
-			namedCapture = true
-		} else {
-			namedCaptureIndex = append(namedCaptureIndex, false)
-		}
-	}
 	err = o.CreatePullRequest(o.Kind,
 		func(dir string, gitInfo *gits.GitRepository) ([]string, error) {
-			oldVersions := make([]string, 0)
-			for _, glob := range o.Files {
-
-				matches, err := filepath.Glob(filepath.Join(dir, glob))
-				if err != nil {
-					return nil, errors.Wrapf(err, "applying glob %s", glob)
-				}
-
-				// iterate over the glob matches
-				for _, path := range matches {
-
-					data, err := ioutil.ReadFile(path)
-					if err != nil {
-						return nil, errors.Wrapf(err, "reading %s", path)
-					}
-					info, err := os.Stat(path)
-					if err != nil {
-						return nil, errors.WithStack(err)
-					}
-					s := string(data)
-					answer := util.ReplaceAllStringSubmatchFunc(regexp, s, func(groups []util.Group) []string {
-						answer := make([]string, 0)
-						for i, group := range groups {
-							if namedCapture {
-								// If we are using named capture, then replace only the named captures that have the right name
-								if namedCaptureIndex[i] {
-									oldVersions = append(oldVersions, group.Value)
-									answer = append(answer, o.Version)
-								} else {
-									answer = append(answer, group.Value)
-								}
-							} else {
-								oldVersions = append(oldVersions, group.Value)
-								answer = append(answer, o.Version)
-							}
-
-						}
-						return answer
-					})
-					err = ioutil.WriteFile(path, []byte(answer), info.Mode())
-					if err != nil {
-						return nil, errors.Wrapf(err, "writing %s", path)
-					}
-				}
-				if err != nil {
-					return nil, errors.WithStack(err)
-				}
-			}
-			return oldVersions, nil
+			return environments.WriteVersionUpdatesUsingRegex(regexp, dir, o.Files, o.Version)
 		})
 	if err != nil {
 		return errors.WithStack(err)
