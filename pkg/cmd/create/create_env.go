@@ -56,21 +56,22 @@ var (
 type CreateEnvOptions struct {
 	options.CreateOptions
 
-	Options                v1.Environment
-	HelmValuesConfig       config.HelmValuesConfig
-	PromotionStrategy      string
-	NoGitOps               bool
-	NoDevNamespaceInit     bool
-	Prow                   bool
-	GitOpsMode             bool
-	ForkEnvironmentGitRepo string
-	EnvJobCredentials      string
-	GitRepositoryOptions   gits.GitRepositoryOptions
-	Prefix                 string
-	BranchPattern          string
-	Vault                  bool
-	PullSecrets            string
-	Update                 bool
+	Options                             v1.Environment
+	HelmValuesConfig                    config.HelmValuesConfig
+	PromotionStrategy                   string
+	NoGitOps                            bool
+	NoDevNamespaceInit                  bool
+	Prow                                bool
+	GitOpsMode                          bool
+	ForkEnvironmentGitRepo              string
+	EnvJobCredentials                   string
+	GitRepositoryOptions                gits.GitRepositoryOptions
+	Prefix                              string
+	BranchPattern                       string
+	Vault                               bool
+	PullSecrets                         string
+	Update                              bool
+	DisableSourceRepositoryRegistration bool
 }
 
 // NewCmdCreateEnv creates a command object for the "create" command
@@ -121,6 +122,7 @@ func NewCmdCreateEnv(commonOpts *opts.CommonOptions) *cobra.Command {
 	cmd.Flags().BoolVarP(&options.Prow, "prow", "", false, "Install and use Prow for environment promotion")
 	cmd.Flags().BoolVarP(&options.Vault, "vault", "", false, "Sets up a Hashicorp Vault for storing secrets during the cluster creation")
 	cmd.Flags().StringVarP(&options.PullSecrets, optionPullSecrets, "", "", "A list of Kubernetes secret names that will be attached to the service account (e.g. foo, bar, baz)")
+	cmd.Flags().BoolVarP(&options.DisableSourceRepositoryRegistration, "disable-source-repository-registration", "dsrr", false, "If set to true a source repository resource for the environment will not be added to the cluster")
 
 	opts.AddGitRepoOptionsArguments(cmd, &options.GitRepositoryOptions)
 	options.HelmValuesConfig.AddExposeControllerValues(cmd, false)
@@ -216,6 +218,9 @@ func (o *CreateEnvOptions) Run() error {
 		return nil
 	})
 	log.Logger().Infof("Created environment %s", util.ColorInfo(env.Name))
+	if o.DisableSourceRepositoryRegistration {
+		return nil
+	}
 
 	if !o.GitOpsMode {
 		err = kube.EnsureEnvironmentNamespaceSetup(kubeClient, jxClient, &env, ns)
